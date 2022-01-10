@@ -1,0 +1,8 @@
+bin/dso_dataset \
+	files=/media/xiang/Xiang_P/2013-01-10/lb3/Cam \
+	calib=/media/xiang/Xiang_P/2013-01-10/calib/calib \
+	undistort=/media/xiang/Xiang_P/2013-01-10/calib/U2D_Cam \
+	extrinsic=/media/xiang/Xiang_P/2013-01-10/extrinsic/x_lb3_c \
+	preset=0 \
+	mode=1
+
