@@ -267,41 +267,54 @@ void FullSystem::printResult(std::string file)
 	myfile.close();
 }
 
-
+//@ 使用确定的运动模型对新来的一帧进行跟踪, 得到位姿和光度参数
 Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 {
 
 	assert(allFrameHistory.size() > 0);
+
+	
+
 	// set pose initialization.
 
     for(IOWrap::Output3DWrapper* ow : outputWrapper)
         ow->pushLiveFrame(fh);
 
-
-
+	// 参考关键帧
 	FrameHessian* lastF = coarseTracker->lastRef;
 
 	AffLight aff_last_2_l = AffLight(0,0);
 
+	// [ ***step 1*** ] 设置不同的运动状态
 	std::vector<SE3,Eigen::aligned_allocator<SE3>> lastF_2_fh_tries;
+	// std::cout << "allFrameHistory.size: " << allFrameHistory.size() << std::endl;
 	if(allFrameHistory.size() == 2)
-		for(unsigned int i=0;i<lastF_2_fh_tries.size();i++) lastF_2_fh_tries.push_back(SE3());
+		for(unsigned int i=0;i<lastF_2_fh_tries.size();i++) 
+			lastF_2_fh_tries.push_back(SE3());
 	else
 	{
+		// 上一帧
 		FrameShell* slast = allFrameHistory[allFrameHistory.size()-2];
+		// 大上一帧
 		FrameShell* sprelast = allFrameHistory[allFrameHistory.size()-3];
 		SE3 slast_2_sprelast;
 		SE3 lastF_2_slast;
+		// std::cout << "fh.id: " << fh->shell->id << std::endl;
+		// std::cout << "lastF.id: " << lastF->shell->id << std::endl;
+		// std::cout << "slast.id: " << slast->id << std::endl;
 		{	// lock on global pose consistency!
+			// 锁定全局姿势一致性
 			boost::unique_lock<boost::mutex> crlock(shellPoseMutex);
 			slast_2_sprelast = sprelast->camToWorld.inverse() * slast->camToWorld;
 			lastF_2_slast = slast->camToWorld.inverse() * lastF->shell->camToWorld;
 			aff_last_2_l = slast->aff_g2l;
 		}
+		// 恒速模型
 		SE3 fh_2_slast = slast_2_sprelast;// assumed to be the same as fh_2_slast.
 
 
 		// get last delta-movement.
+		// 多个模型
 		lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast);	// assume constant motion.
 		lastF_2_fh_tries.push_back(fh_2_slast.inverse() * fh_2_slast.inverse() * lastF_2_slast);	// assume double motion (frame skipped)
 		lastF_2_fh_tries.push_back(SE3::exp(fh_2_slast.log()*0.5).inverse() * lastF_2_slast); // assume half motion.
@@ -312,6 +325,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 		// just try a TON of different initializations (all rotations). In the end,
 		// if they don't work they will only be tried on the coarsest level, which is super fast anyway.
 		// also, if tracking rails here we loose, so we really, really want to avoid that.
+		//微小移动
 		for(float rotDelta=0.02; rotDelta < 0.05; rotDelta++)
 		{
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,rotDelta,0,0), Vec3(0,0,0)));			// assume constant motion.
@@ -342,11 +356,14 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
 		}
 
+		// std::cout<< "lastF_2_fh_tries.size" << lastF_2_fh_tries.size() << std::endl;
+
 		if(!slast->poseValid || !sprelast->poseValid || !lastF->shell->poseValid)
 		{
 			lastF_2_fh_tries.clear();
 			lastF_2_fh_tries.push_back(SE3());
 		}
+		// std::cout<< "lastF_2_fh_tries.size" << lastF_2_fh_tries.size() << std::endl;
 	}
 
 
@@ -363,6 +380,8 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 	Vec5 achievedRes = Vec5::Constant(NAN);
 	bool haveOneGood = false;
 	int tryIterations=0;
+	// std::cout<< "lastF_2_fh_tries.size" << lastF_2_fh_tries.size() << std::endl;
+	//对每一种假设进行误差判断
 	for(unsigned int i=0;i<lastF_2_fh_tries.size();i++)
 	{
 		AffLight aff_g2l_this = aff_last_2_l;
@@ -372,6 +391,8 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 				pyrLevelsUsed-1,
 				achievedRes);	// in each level has to be at least as good as the last try.
 		tryIterations++;
+
+		// std::cout<< i << std::endl;
 
 		if(i != 0)
 		{
@@ -811,28 +832,35 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	FrameShell* shell = new FrameShell();
 	shell->camToWorld = SE3(); 		// no lock required, as fh is not used anywhere yet.
 	shell->aff_g2l = AffLight(0,0);
+	// std::cout << "allFrameHistory.size: " << allFrameHistory.size() << std::endl;
+	// std::cout << "Id: " << id << std::endl;
+	// 如果lost，id将不等于allFrameHistory.size()
     shell->marginalizedAt = shell->id = allFrameHistory.size();
     shell->timestamp = image->timestamp;
     shell->incoming_id = id;
-	fh->shell = shell;
-	allFrameHistory.push_back(shell);
+	fh->shell = shell;     //!< 帧的"壳", 保存一些不变的,要留下来的量
+	allFrameHistory.push_back(shell);  // 只把简略的shell存起来
 
 
 	// =========================== make Images / derivatives etc. =========================
+	// 得到曝光时间
 	fh->ab_exposure = image->exposure_time;
+	// 构建金字塔
     fh->makeImages(image->image, &Hcalib);
 
 
 
 
 	if(!initialized)
-	{
-		// use initializer!
+	{	
+		//初始化！！！初始化！！！
+		// 加入第一帧
 		if(coarseInitializer->frameID<0)	// first frame set. fh is kept by coarseInitializer.
 		{
 
 			coarseInitializer->setFirst(&Hcalib, fh);
 		}
+		// 跟踪成功, 完成初始化
 		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
 		{
 
@@ -851,13 +879,16 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	else	// do front-end operation.
 	{
 		// =========================== SWAP tracking reference?. =========================
+		// 将当前帧作为关键帧进行处理
 		if(coarseTracker_forNewKF->refFrameID > coarseTracker->refFrameID)
 		{
 			boost::unique_lock<boost::mutex> crlock(coarseTrackerSwapMutex);
-			CoarseTracker* tmp = coarseTracker; coarseTracker=coarseTracker_forNewKF; coarseTracker_forNewKF=tmp;
+			CoarseTracker* tmp = coarseTracker; 
+			coarseTracker=coarseTracker_forNewKF; 
+			coarseTracker_forNewKF=tmp;
 		}
 
-
+		// 得到位姿
 		Vec4 tres = trackNewCoarse(fh);
 		if(!std::isfinite((double)tres[0]) || !std::isfinite((double)tres[1]) || !std::isfinite((double)tres[2]) || !std::isfinite((double)tres[3]))
         {
@@ -867,6 +898,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
         }
 
 		bool needToMakeKF = false;
+		//使用时间戳进行关键帧设置
 		if(setting_keyframesPerSecond > 0)
 		{
 			needToMakeKF = allFrameHistory.size()== 1 ||
@@ -901,6 +933,7 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		return;
 	}
 }
+
 void FullSystem::deliverTrackedFrame(FrameHessian* fh, bool needKF)
 {
 

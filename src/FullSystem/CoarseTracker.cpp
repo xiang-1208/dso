@@ -533,6 +533,18 @@ void CoarseTracker::setCoarseTrackingRef(
 	firstCoarseRMSE=-1;
 
 }
+
+
+/******************
+*这部分主要代码在函数FullSystem::trackNewCoarse中。
+*首先，DSO设置了一系列的候选位姿lastF_2_fh_tries，作为前一关键帧到当前帧的相对位姿的初值。
+*这里主要参考前两帧和前一关键帧的位姿，就静止、恒定速度等猜想设了一些初值，另外主要针对旋转设置了许多微小的初始值。
+*然后开始不断地尝试，从图像金字塔顶层开始就这些初值进行追踪CoarseTracker
+*::trackNewestCoarse，如果找到一个合适的初值，就跳出循环。
+*先来看一下追踪部分是如何实现的。函数CoarseTracker::trackNewestCoarse，传入参数有当前帧newFrameHessian，预测的相对位姿lastToNew_out，
+*预测的相对光度aff_g2l_out（初始化为0），金字塔层数coarsestLvl，用来判断是否合适的误差minResForAbort，
+*返回一个表明是否成功的bool值。该函数从输入的金字塔层级开始，由粗到精地计算最佳位姿
+***************/
 bool CoarseTracker::trackNewestCoarse(
 		FrameHessian* newFrameHessian,
 		SE3 &lastToNew_out, AffLight &aff_g2l_out,

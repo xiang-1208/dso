@@ -70,6 +70,7 @@ inline int getdir (std::string dir, std::vector<std::string> &files)
 	{
 		if(files[i].at(0) != '/')
 			files[i] = dir + files[i];
+		std::cout << files[i] << std::endl;
 	}
 
     return files.size();
@@ -136,6 +137,7 @@ public:
 				const char* name = zip_get_name(ziparchive, k,  ZIP_FL_ENC_STRICT);
 				std::string nstr = std::string(name);
 				if(nstr == "." || nstr == "..") continue;
+				// std::cout << name << std::endl;
 				files.push_back(name);
 			}
 
@@ -164,14 +166,13 @@ public:
 		printf("ImageFolderReader: got %d files in %s!\n", (int)files.size(), path.c_str());
 
 	}
+
 	~ImageFolderReader()
 	{
 #if HAS_ZIPLIB
 		if(ziparchive!=0) zip_close(ziparchive);
 		if(databuffer!=0) delete databuffer;
 #endif
-
-
 		delete undistort;
 	};
 
@@ -187,6 +188,7 @@ public:
 	void getCalibMono(Eigen::Matrix3f &K, int &w, int &h)
 	{
 		K = undistort->getK().cast<float>();
+		std::cout << K <<std::endl;
 		w = undistort->getSize()[0];
 		h = undistort->getSize()[1];
 	}
@@ -280,6 +282,7 @@ private:
 	}
 
 
+
 	ImageAndExposure* getImage_internal(int id, int unused)
 	{
 		MinimalImageB* minimg = getImageRaw_internal(id, 0);
@@ -291,6 +294,10 @@ private:
 		return ret2;
 	}
 
+	/*
+ 	加载时间戳：
+ 	加载进私有变量，并且验证时间戳的有效性
+	*/
 	inline void loadTimestamps()
 	{
 		std::ifstream tr;

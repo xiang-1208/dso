@@ -148,7 +148,9 @@ void settingsDefault(int preset)
 
 
 
-
+/****
+参数配置
+****/
 void parseArgument(char* arg)
 {
 	int option;
