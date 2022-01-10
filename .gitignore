@@ -2,6 +2,7 @@
 *.pro.user
 *.pro.user*
 build*
+.vscode
 build-*
 *.o
 *.so
